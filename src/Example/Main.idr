@@ -3,6 +3,17 @@ module Example.Main
 import PQ.FFI
 import PQ.Types
 
+createWeather : String
+createWeather = #"""
+  CREATE TABLE weather (
+    city            varchar(80),
+    temp_lo         int,           -- low temperature
+    temp_hi         int,           -- high temperature
+    prcp            real,          -- precipitation
+    date            date
+  );
+  """#
+
 main_ : HasIO io => io ()
 main_ = do
   c    <- connect "postgresql://gundi@localhost:5432/testdb"
@@ -22,6 +33,17 @@ main_ = do
            """#
 
   clear res
+
+  res2 <- exec c createWeather
+  est2 <- resultStatus res2
+  msg  <- resultErrorMsg res2
+  
+  putStrLn #"""
+           Result status     : \#{show est2}
+           Error             : \#{msg}
+           """#
+
+  clear res2
   finish c
 
 main : IO ()

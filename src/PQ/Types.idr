@@ -52,6 +52,7 @@ namespace ConnStatusType
 --          ExecStatusType
 --------------------------------------------------------------------------------
 
+public export
 data ExecStatusType =
     EMPTY_QUERY
   | COMMAND_OK

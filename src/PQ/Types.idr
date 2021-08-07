@@ -26,7 +26,7 @@ data ConnStatusType =
   | CONSUME
   | GSS_STARTUP
   | CHECK_TARGET
-  | OTHER Bits8
+  | CONN_STATUS_OTHER Bits8
 
 %runElab derive "ConnStatusType" [Generic,Meta,Show,Eq,Ord]
 
@@ -46,4 +46,38 @@ namespace ConnStatusType
   fromBits8 10 = CONSUME
   fromBits8 11 = GSS_STARTUP
   fromBits8 12 = CHECK_TARGET
-  fromBits8  n = OTHER n
+  fromBits8  n = CONN_STATUS_OTHER n
+
+--------------------------------------------------------------------------------
+--          ExecStatusType
+--------------------------------------------------------------------------------
+
+data ExecStatusType =
+    EMPTY_QUERY
+  | COMMAND_OK
+  | TUPLES_OK
+  | COPY_OUT
+  | COPY_IN
+  | BAD_RESPONSE
+  | NONFATAL_ERROR
+  | FATAL_ERROR
+  | COPY_BOTH
+  | SINGLE_TUPLE
+  | EXEC_STATUS_OTHER Bits8
+
+%runElab derive "ExecStatusType" [Generic,Meta,Show,Eq,Ord]
+
+namespace ExecStatusType
+  public export
+  fromBits8 : Bits8 -> ExecStatusType
+  fromBits8 0 = EMPTY_QUERY
+  fromBits8 1 = COMMAND_OK
+  fromBits8 2 = TUPLES_OK
+  fromBits8 3 = COPY_OUT
+  fromBits8 4 = COPY_IN
+  fromBits8 5 = BAD_RESPONSE
+  fromBits8 6 = NONFATAL_ERROR
+  fromBits8 7 = FATAL_ERROR
+  fromBits8 8 = COPY_BOTH
+  fromBits8 9 = SINGLE_TUPLE
+  fromBits8 n = EXEC_STATUS_OTHER n

@@ -114,6 +114,10 @@ public export
 PutTypeC (MkField idrisTpe _ _ con def _ _) = PutType con def idrisTpe
 
 public export
+0 GetTypeC : Column -> Type
+GetTypeC (MkField idrisTpe _ _ con def _ _) = GetType con def idrisTpe
+
+public export
 primarySerial16 : (0 t : Type) -> String -> (Int16 -> Maybe t) -> Column
 primarySerial16 t n f =
   MkField t n SmallInt PrimaryKey SmallSerial f (const Nothing)
@@ -137,6 +141,17 @@ notNull : (0 t : Type)
         -> Column
 notNull t n pq dec enc =
   MkField t n pq (Vanilla NotNull) NoDefault dec (Just . enc)
+
+public export
+notNullDefault : (0 t : Type)
+               -> String
+               -> (pq   : PQType)
+               -> (dflt : DBType pq)
+               -> (decode : DBType pq -> Maybe t)
+               -> (encode : t -> DBType pq)
+               -> Column
+notNullDefault t n pq dflt dec enc =
+  MkField t n pq (Vanilla NotNull) (Value dflt) dec (map enc)
 
 public export
 nullable : (0 t : Type)

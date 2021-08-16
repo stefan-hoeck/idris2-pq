@@ -2,6 +2,7 @@ module PQ.CRUD
 
 import Data.SOP
 import PQ.Schema
+import Data.List
 
 %default total
 
@@ -10,38 +11,38 @@ Row : (f : Column -> Type) -> List Column -> Type
 Row = NP
 
 --------------------------------------------------------------------------------
---          Create
+--          Insert
 --------------------------------------------------------------------------------
 
 public export
-CreateEffect : Constraint -> Default t -> Type -> Type
-CreateEffect _ (Value x)          = Maybe
-CreateEffect _ SmallSerial        = K ()
-CreateEffect _ Serial             = K ()
-CreateEffect _ BigSerial          = K ()
-CreateEffect (Vanilla Nullable) _ = Maybe
-CreateEffect (Unique Nullable)  _ = Maybe
-CreateEffect _ NoDefault          = I
+0 InsertRow : List Column -> Type
+InsertRow = Row PutTypeC
 
-public export
-CreateType : Column -> Type
-CreateType (MkField _ tpe con def) =
-  CreateEffect con def (IdrisType tpe)
+colPairs : (cs : List Column) -> InsertRow cs -> List (String, String)
+colPairs [] [] = []
+colPairs (MkField _ n pqTpe _ _ _ toPQ :: cs) (v :: vs) =
+  case encodeDBType pqTpe <$> toPQ v of
+    Just s  => (n, s) :: colPairs cs vs 
+    Nothing => colPairs cs vs 
 
-public export
-CreateRow : List Column -> Type
-CreateRow = Row CreateType
+export
+insert : (t : Table) -> InsertRow (columns t) -> String
+insert (MkTable n cs) row =
+  let (cns,vs) = unzip $ colPairs cs row
+      colNames = fastConcat $ intersperse ", " cns
+      vals     = fastConcat $ intersperse ", " vs
+   in #"INSERT INTO \#{n} (\#{colNames}) VALUES (\#{vals})"#
 
 --------------------------------------------------------------------------------
 --          Example
 --------------------------------------------------------------------------------
 
-MyTable : Table
-MyTable = MkTable "customer"
-            [ MkField "id" BigInt PrimaryKey BigSerial
-            , MkField "name" Text (Vanilla NotNull) NoDefault
-            , MkField "orders" PQInteger (Vanilla NotNull) (Value 0)
-            ]
-
-newCustomer : CreateRow (columns MyTable)
-newCustomer = [(), "Gundi", Nothing]
+-- MyTable : Table
+-- MyTable = MkTable "customer"
+--             [ MkField "id" BigInt PrimaryKey BigSerial Int64 Just id
+--             , MkField "name" Text (Vanilla NotNull) NoDefault String Just id
+--             , MkField "orders" PQInteger (Vanilla NotNull) (Value 0) Int32 Just id
+--             ]
+-- 
+-- newCustomer : InsertRow (columns MyTable)
+-- newCustomer = [(), "Gundi", Nothing]

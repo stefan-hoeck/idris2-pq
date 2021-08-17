@@ -22,6 +22,7 @@ data PQPrim : Type where
   BigInt          : PQPrim
   DoublePrecision : PQPrim
   Text            : PQPrim
+  VarChar         : Bits32 -> PQPrim
   Boolean         : PQPrim
 
 export
@@ -31,6 +32,7 @@ primSchema PQInteger       = "integer"
 primSchema BigInt          = "bigint"
 primSchema DoublePrecision = "double precision"
 primSchema Text            = "text"
+primSchema (VarChar n)     = #"varchar(\#{show n})"#
 primSchema Boolean         = "boolean"
 
 public export
@@ -40,6 +42,7 @@ PrimType PQInteger       = Int32
 PrimType BigInt          = Int64
 PrimType DoublePrecision = Double
 PrimType Text            = String
+PrimType (VarChar _)     = String
 PrimType Boolean         = Bool
 
 export
@@ -49,6 +52,7 @@ encodePrimType PQInteger x       = show x
 encodePrimType BigInt x          = show x
 encodePrimType DoublePrecision x = show x
 encodePrimType Text x            = #"'\#{x}'"#
+encodePrimType (VarChar _) x     = #"'\#{x}'"#
 encodePrimType Boolean True      = "TRUE"
 encodePrimType Boolean False     = "FALSE"
 
@@ -59,6 +63,7 @@ decodePrimType PQInteger x       = cast x
 decodePrimType BigInt x          = cast x
 decodePrimType DoublePrecision x = cast x
 decodePrimType Text x            = x
+decodePrimType (VarChar _) x     = x
 decodePrimType Boolean "t"       = True
 decodePrimType Boolean _         = False
 
@@ -266,6 +271,10 @@ data Ord : PQType -> Type where
   OrdNullable : OrdPrim p -> Ord (Nullable p)
 
 public export
+data IsNullable : PQType -> Type where
+  ItIsNullable : {0 p : PQPrim} -> IsNullable (Nullable p)
+
+public export
 data Op : Type where
   (==)  : (c : Column) -> DBType (pqType c) -> {auto 0 _ : Eq (pqType c)} -> Op
   (/=)  : (c : Column) -> DBType (pqType c) -> {auto 0 _ : Eq (pqType c)} -> Op
@@ -273,6 +282,8 @@ data Op : Type where
   (>=)  : (c : Column) -> DBType (pqType c) -> {auto 0 _ : Ord (pqType c)} -> Op
   (<)   : (c : Column) -> DBType (pqType c) -> {auto 0 _ : Ord (pqType c)} -> Op
   (<=)  : (c : Column) -> DBType (pqType c) -> {auto 0 _ : Ord (pqType c)} -> Op
+  IsNull    : (c : Column) -> {auto 0 _ : IsNullable (pqType c)} -> Op
+  IsNotNull : (c : Column) -> {auto 0 _ : IsNullable (pqType c)} -> Op
   (&&)  : Op -> Op -> Op
   (||)  : Op -> Op -> Op
   Not   : Op -> Op
@@ -281,14 +292,16 @@ data Op : Type where
 
 export
 opToSQL : Op -> String
-opToSQL (c == x) = #"\#{c.name} = \#{encodeDBType c.pqType x}"#
-opToSQL (c /= x) = #"\#{c.name} <> \#{encodeDBType c.pqType x}"#
-opToSQL (c > x)  = #"\#{c.name} > \#{encodeDBType c.pqType x}"#
-opToSQL (c >= x) = #"\#{c.name} >= \#{encodeDBType c.pqType x}"#
-opToSQL (c < x)  = #"\#{c.name} < \#{encodeDBType c.pqType x}"#
-opToSQL (c <= x) = #"\#{c.name} <= \#{encodeDBType c.pqType x}"#
-opToSQL (x && y) = #"(\#{opToSQL x}) AND (\#{opToSQL y})"#
-opToSQL (Not x)  = #"NOT (\#{opToSQL x})"#
-opToSQL (x || y) = #"(\#{opToSQL x}) OR (\#{opToSQL y})"#
-opToSQL True     = "TRUE"
-opToSQL False    = "FALSE"
+opToSQL (c == x)      = #"\#{c.name} = \#{encodeDBType c.pqType x}"#
+opToSQL (c /= x)      = #"\#{c.name} <> \#{encodeDBType c.pqType x}"#
+opToSQL (c > x)       = #"\#{c.name} > \#{encodeDBType c.pqType x}"#
+opToSQL (c >= x)      = #"\#{c.name} >= \#{encodeDBType c.pqType x}"#
+opToSQL (c < x)       = #"\#{c.name} < \#{encodeDBType c.pqType x}"#
+opToSQL (c <= x)      = #"\#{c.name} <= \#{encodeDBType c.pqType x}"#
+opToSQL (IsNull c)    = #"\#{c.name} IS NULL"#
+opToSQL (IsNotNull c) = #"\#{c.name} IS NOT NULL"#
+opToSQL (x && y)      = #"(\#{opToSQL x}) AND (\#{opToSQL y})"#
+opToSQL (Not x)       = #"NOT (\#{opToSQL x})"#
+opToSQL (x || y)      = #"(\#{opToSQL x}) OR (\#{opToSQL y})"#
+opToSQL True          = "TRUE"
+opToSQL False         = "FALSE"

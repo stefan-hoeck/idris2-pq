@@ -1,50 +1,57 @@
 module Example.Main
 
+import Control.Monad.Either
+import Data.SOP
+import Data.List.Elem
+import PQ.CRUD
 import PQ.FFI
+import PQ.Schema
 import PQ.Types
 
-createWeather : String
-createWeather = #"""
-  CREATE TABLE weather (
-    city            varchar(80),
-    temp_lo         int,           -- low temperature
-    temp_hi         int,           -- high temperature
-    prcp            real,          -- precipitation
-    date            date
-  );
-  """#
+SchemaName : Column
+SchemaName = notNull String "schemaname" Text Just id
 
-main_ : HasIO io => io ()
+TableName : Column
+TableName = notNull String "tablename" Text Just id
+
+TableOwner : Column
+TableOwner = notNull String "tableowner" Text Just id
+
+TableSpace : Column
+TableSpace = nullable String "tablespace" Text Just id
+
+HasIndexes : Column
+HasIndexes = notNull Bool "hasindexes" Boolean Just id
+
+HasRules : Column
+HasRules = notNull Bool "hasrules" Boolean Just id
+
+HasTriggers : Column
+HasTriggers = notNull Bool "hastriggers" Boolean Just id
+
+RowSecurity : Column
+RowSecurity = notNull Bool "rowsecurity" Boolean Just id
+
+Tables : Table
+Tables = MkTable "pg_tables"
+           [ SchemaName
+           , TableName
+           , TableOwner
+           , TableSpace
+           , HasIndexes
+           , HasRules
+           , HasTriggers
+           , RowSecurity
+           ]
+
+main_ : HasIO io => MonadError SQLError io => io ()
 main_ = do
   c    <- connect "postgresql://gundi@localhost:5432/testdb"
-  s    <- status c
-  res  <- exec c "SELECT current_time;"
-  est  <- resultStatus res
-  rows <- ntuples res
-  cols <- nfields res
-  val  <- getValue res 0 0
-  
-  putStrLn #"""
-           Connection status : \#{show s}
-           Result status     : \#{show est}
-           Rows              : \#{show rows}
-           Columns           : \#{show cols}
-           Value             : \#{val}
-           """#
-
-  clear res
-
-  res2 <- exec c createWeather
-  est2 <- resultStatus res2
-  msg  <- resultErrorMsg res2
-  
-  putStrLn #"""
-           Result status     : \#{show est2}
-           Error             : \#{msg}
-           """#
-
-  clear res2
+  rows <- getCmd c Tables [TableName,HasIndexes]
   finish c
+  traverse_ printLn rows
 
 main : IO ()
-main = main_
+main = do Left err <- runEitherT (main_ {io = EitherT SQLError IO})
+            | Right () => pure ()
+          printLn err

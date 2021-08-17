@@ -1,5 +1,6 @@
 module PQ.CRUD
 
+import Control.Monad.Either
 import Data.List
 import Data.List.Elem
 import Data.SOP
@@ -27,8 +28,12 @@ public export
 PutRow = Row PutTypeC
 
 public export
+0 GetTypes : List Column -> List Type
+GetTypes = map GetTypeC
+
+public export
 0 GetRow : List Column -> Type
-GetRow = Row GetTypeC
+GetRow cs = NP I (GetTypes cs)
 
 colPairs : (cs : List Column) -> PutRow cs -> List (String, String)
 colPairs [] [] = []
@@ -46,10 +51,6 @@ insert (MkTable n cs) row =
    in #"INSERT INTO \#{n} (\#{colNames}) VALUES (\#{vals});"#
 
 export
-insertCmd : HasIO io => Connection -> (t : Table) -> PutRow (columns t) -> IO ()
-insertCmd c t row = ignore $ exec c (insert t row)
-
-export
 get :  (t        : Table)
     -> (cs       : List Column)
     -> {auto 0 _ : Elems cs (columns t)}
@@ -58,12 +59,42 @@ get t cs =
   let cols = fastConcat $ intersperse ", " $ map name cs
    in #"SELECT \#{cols} FROM \#{t.name};"#
 
+--------------------------------------------------------------------------------
+--          IO
+--------------------------------------------------------------------------------
+
+export
+insertCmd :  HasIO io
+          => MonadError SQLError io
+          => Connection
+          -> (t : Table)
+          -> PutRow (columns t)
+          -> io ()
+insertCmd c t row = exec c (insert t row) COMMAND_OK >>= clear
+
+names : (cs : List Column) -> NP (K String) (GetTypes cs)
+names []        = []
+names (x :: xs) = x.name :: names xs
+
+reader : (c : Column) -> Maybe String -> Maybe (GetTypeC c)
+reader (MkField _ _ pqType _ _ fromPQ _) ms =
+  fromPQ (decodeDBType pqType <$> ms)
+
+readers : (cs : List Column) -> NP (\t => Maybe String -> Maybe t) (GetTypes cs)
+readers []        = []
+readers (x :: xs) = reader x :: readers xs
+
 export
 getCmd :  HasIO io
-       => (t        : Table)
+       => MonadError SQLError io
+       => Connection
+       -> (t        : Table)
        -> (cs       : List Column)
        -> {auto 0 _ : Elems cs (columns t)}
-       -> io (Maybe $ List $ GetRow cs)
+       -> io (List $ GetRow cs)
+getCmd c t cs = do
+  res <- exec c (get t cs) TUPLES_OK
+  getRows (names cs) (readers cs) res
 
 --------------------------------------------------------------------------------
 --          Example

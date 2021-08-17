@@ -82,3 +82,25 @@ namespace ExecStatusType
   fromBits8 8 = COPY_BOTH
   fromBits8 9 = SINGLE_TUPLE
   fromBits8 n = EXEC_STATUS_OTHER n
+
+--------------------------------------------------------------------------------
+--          Errors
+--------------------------------------------------------------------------------
+
+public export
+data SQLError : Type where
+  ConnectionError : (type : ConnStatusType) -> (msg : String) -> SQLError
+
+  ExecError       : (type : ExecStatusType) -> (msg : String) -> SQLError
+
+  QueryError      :  (expectedNumerOfColumns : Bits32)
+                  -> (numberOfColumns : Bits32)
+                  -> SQLError
+
+  ReadError       :  (name   : String)
+                  -> (row    : Bits32)
+                  -> (column : Bits32)
+                  -> (value  : Maybe String)
+                  -> SQLError
+
+%runElab derive "SQLError" [Generic,Meta,Show,Eq]

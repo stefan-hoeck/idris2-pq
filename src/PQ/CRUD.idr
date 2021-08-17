@@ -35,66 +35,115 @@ public export
 0 GetRow : List Column -> Type
 GetRow cs = NP I (GetTypes cs)
 
-colPairs : (cs : List Column) -> PutRow cs -> List (String, String)
-colPairs [] [] = []
-colPairs (MkField _ n pqTpe _ _ _ toPQ :: cs) (v :: vs) =
-  case encodeDBType pqTpe <$> toPQ v of
-    Just s  => (n, s) :: colPairs cs vs 
-    Nothing => colPairs cs vs 
+colVals : (cs : List Column) -> PutRow cs -> List String
+colVals [] [] = []
+colVals (MkField _ n pqTpe _ dflt _ toPQ :: cs) (v :: vs) =
+  encodePutType dflt (toPQ v) :: colVals cs vs
+
+colStr : (cs : List Column) -> PutRow cs -> String
+colStr cs row = 
+  let vals = fastConcat $ intersperse ", " (colVals cs row)
+   in #"(\#{vals})"#
 
 export
-insert : (t : Table) -> PutRow (columns t) -> String
-insert (MkTable n cs) row =
-  let (cns,vs) = unzip $ colPairs cs row
-      colNames = fastConcat $ intersperse ", " cns
-      vals     = fastConcat $ intersperse ", " vs
-   in #"INSERT INTO \#{n} (\#{colNames}) VALUES (\#{vals});"#
+insertSQL : (t : Table) -> List (PutRow (columns t)) -> String
+insertSQL (MkTable n cs) rows =
+  let colNames = fastConcat $ intersperse ", " (map name cs)
+      allVals  = fastConcat $ intersperse ", " (map (colStr cs) rows)
+   in #"INSERT INTO \#{n} (\#{colNames}) VALUES \#{allVals};"#
 
 export
-get :  (t        : Table)
-    -> (cs       : List Column)
-    -> {auto 0 _ : Elems cs (columns t)}
-    -> String
-get t cs =
+getSQL :  (t        : Table)
+       -> (cs       : List Column)
+       -> {auto 0 _ : Elems cs (columns t)}
+       -> (query    : Op)
+       -> String
+getSQL t cs query =
   let cols = fastConcat $ intersperse ", " $ map name cs
-   in #"SELECT \#{cols} FROM \#{t.name};"#
+   in #"SELECT \#{cols} FROM \#{t.name} WHERE \#{opToSQL query};"#
+
+export
+count : (t : Table) -> (query : Op) -> String
+count t query = #"SELECT count(*) FROM \#{t.name} WHERE \#{opToSQL query};"#
 
 --------------------------------------------------------------------------------
 --          IO
 --------------------------------------------------------------------------------
 
 export
-insertCmd :  HasIO io
-          => MonadError SQLError io
-          => Connection
-          -> (t : Table)
-          -> PutRow (columns t)
-          -> io ()
-insertCmd c t row = exec c (insert t row) COMMAND_OK >>= clear
+insert :  HasIO io
+       => MonadError SQLError io
+       => Connection
+       -> (t : Table)
+       -> List (PutRow (columns t))
+       -> io ()
+insert c t rows = exec_ c (insertSQL t rows) COMMAND_OK
+
+export
+insert1 :  HasIO io
+        => MonadError SQLError io
+        => Connection
+        -> (t : Table)
+        -> PutRow (columns t)
+        -> io ()
+insert1 c t row = insert c t [row]
 
 names : (cs : List Column) -> NP (K String) (GetTypes cs)
 names []        = []
 names (x :: xs) = x.name :: names xs
 
-reader : (c : Column) -> Maybe String -> Maybe (GetTypeC c)
-reader (MkField _ _ pqType _ _ fromPQ _) ms =
-  fromPQ (decodeDBType pqType <$> ms)
+reader : (c : Column) -> String -> Maybe (GetTypeC c)
+reader (MkField _ _ pqType _ _ fromPQ _) s =
+  fromPQ (decodeDBType pqType s)
 
-readers : (cs : List Column) -> NP (\t => Maybe String -> Maybe t) (GetTypes cs)
+readers : (cs : List Column) -> NP (\t => String -> Maybe t) (GetTypes cs)
 readers []        = []
 readers (x :: xs) = reader x :: readers xs
 
 export
-getCmd :  HasIO io
+get :  HasIO io
+    => MonadError SQLError io
+    => Connection
+    -> (t        : Table)
+    -> (cs       : List Column)
+    -> {auto 0 _ : Elems cs (columns t)}
+    -> (query : Op)
+    -> io (List $ GetRow cs)
+get c t cs query = do
+  res <- exec c (getSQL t cs query) TUPLES_OK
+  getRows (names cs) (readers cs) res
+
+export
+countCmd :  HasIO io
+         => MonadError SQLError io
+         => Connection
+         -> (t     : Table)
+         -> (query : Op)
+         -> io Bits32
+countCmd c t query = do
+  res   <- exec c (count t query) TUPLES_OK
+  [[c]] <- getRows ["count"] [Just . cast {to = Bits32}] res
+    | _ => pure 0
+  pure c
+
+export
+delete :  HasIO io
        => MonadError SQLError io
        => Connection
-       -> (t        : Table)
-       -> (cs       : List Column)
-       -> {auto 0 _ : Elems cs (columns t)}
-       -> io (List $ GetRow cs)
-getCmd c t cs = do
-  res <- exec c (get t cs) TUPLES_OK
-  getRows (names cs) (readers cs) res
+       -> (t     : Table)
+       -> (query : Op)
+       -> io ()
+delete c t query =
+  let sql = #"DELETE FROM \#{t.name} WHERE \#{opToSQL query};"#
+   in exec_ c sql COMMAND_OK
+
+export
+clearTable :  HasIO io
+           => MonadError SQLError io
+           => Connection
+           -> (t     : Table)
+           -> io ()
+clearTable c t = delete c t True
 
 --------------------------------------------------------------------------------
 --          Example
@@ -116,4 +165,4 @@ newCustomer : PutRow (columns MyTable)
 newCustomer = [(), "Gundi", Nothing]
 
 getIdName : String
-getIdName = get MyTable [Name,Id]
+getIdName = getSQL MyTable [Name,Id] (Orders >= 3)

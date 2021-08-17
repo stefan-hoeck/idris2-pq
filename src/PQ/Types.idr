@@ -100,7 +100,7 @@ data SQLError : Type where
   ReadError       :  (name   : String)
                   -> (row    : Bits32)
                   -> (column : Bits32)
-                  -> (value  : Maybe String)
+                  -> (value  : String)
                   -> SQLError
 
 %runElab derive "SQLError" [Generic,Meta,Show,Eq]

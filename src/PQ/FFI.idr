@@ -60,7 +60,7 @@ prim__resultErrorMsg : Result -> PrimIO String
 prim__clear : Result -> PrimIO ()
 
 %foreign pq "PQgetvalue"
-prim__getValue : Result -> Bits32 -> Bits32 -> PrimIO (Ptr String)
+prim__getValue : Result -> Bits32 -> Bits32 -> PrimIO String
 
 --------------------------------------------------------------------------------
 --          Low level API
@@ -114,6 +114,15 @@ exec c s est = do
        throwError $ ExecError st msg
 
 export
+exec_ :  HasIO io
+      => MonadError SQLError io
+      => Connection
+      -> String
+      -> ExecStatusType
+      -> io ()
+exec_ c s est = exec c s est >>= clear
+
+export
 ntuples : HasIO io => Result -> io Bits32
 ntuples r = primIO $ prim__ntuples r
 
@@ -128,8 +137,8 @@ ptrToString ptr =
      else Just (believe_me ptr)
 
 export
-getValue : HasIO io => Result -> Bits32 -> Bits32 -> io (Maybe String)
-getValue r row col = map ptrToString . primIO $ prim__getValue r row col
+getValue : HasIO io => Result -> Bits32 -> Bits32 -> io String
+getValue r row col = primIO $ prim__getValue r row col
 
 --------------------------------------------------------------------------------
 --          SOP
@@ -141,7 +150,7 @@ getVal :  HasIO io
        -> (row  : Bits32)
        -> (name : String)
        -> (col  : Bits32)
-       -> (read : Maybe String -> Maybe t)
+       -> (read : String -> Maybe t)
        -> io t
 getVal res row name col read = do
   s <- getValue res row col
@@ -154,7 +163,7 @@ getRow :  {0 ts : List Type}
        => MonadError SQLError io
        => NP (K String) ts
        -> NP (K Bits32) ts
-       -> NP (\t => Maybe String -> Maybe t) ts
+       -> NP (\t => String -> Maybe t) ts
        -> Result
        -> (row : Bits32)
        -> io (NP I ts)
@@ -166,7 +175,7 @@ getRows :  {0 ts : List Type}
         -> HasIO io
         => MonadError SQLError io
         => NP (K String) ts
-        -> NP (\t => Maybe String -> Maybe t) ts
+        -> NP (\t => String -> Maybe t) ts
         -> Result
         -> io (List $ NP I ts)
 getRows names readers res =
@@ -179,5 +188,5 @@ getRows names readers res =
          else do
            nf <- nfields res
            if nf == fieldCount
-              then traverse (getRow names indices readers res) [0 .. (nt - 1)]
+              then traverse (getRow names indices readers res) [0 .. nt - 1]
               else throwError $ QueryError fieldCount nf

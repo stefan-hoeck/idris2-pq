@@ -15,6 +15,20 @@ depends    = base      >= 0.4.0
            , sop       >= 0.4.0
 
 modules = PQ.CRUD
+
         , PQ.FFI
+        , PQ.FFI.Bindings
+        , PQ.FFI.CRUD
+        , PQ.FFI.Types
+
         , PQ.Schema
+        , PQ.Schema.Query
+        , PQ.Schema.Table
+        , PQ.Schema.Type
+
+        , PQ.SQL
+        , PQ.SQL.Query
+        , PQ.SQL.Table
+        , PQ.SQL.Type
+
         , PQ.Types

@@ -1,5 +1,7 @@
 module PQ.FFI.Bindings
 
+import Control.Monad.Error.Interface
+import Control.Monad.Reader.Interface
 import PQ.FFI.Types
 
 --------------------------------------------------------------------------------
@@ -69,93 +71,129 @@ record SQLEnv (env : Type) (io : Type -> Type) (a : Type) where
   constructor MkSQLEnv
   runSQL : env -> io (Either SQLError a)
 
+bind : Monad io => SQLEnv env io a -> (a -> SQLEnv env io b) -> SQLEnv env io b
+bind (MkSQLEnv g) f =
+  MkSQLEnv $ \e => do
+    Right a <- g e
+      | Left err => pure (Left err)
+    runSQL (f a) e
+
+catch :  Monad io
+      => SQLEnv env io a
+      -> (SQLError -> SQLEnv env io a)
+      -> SQLEnv env io a
+catch (MkSQLEnv fun) f =
+  MkSQLEnv $ \e => do
+    Left err <- fun e
+      | Right a => pure (Right a)
+    runSQL (f err) e
+
+public export %inline
+Functor io => Functor (SQLEnv env io) where
+  map f (MkSQLEnv run) = MkSQLEnv $ (map . map $ f) . run
+
+public export %inline
+Monad io => Applicative (SQLEnv env io) where
+  pure a = MkSQLEnv $ \_ => pure (Right a)
+  f <*> a = bind f $ \fun => map (apply fun) a
+
+public export %inline
+Monad io => Monad (SQLEnv env io) where
+  (>>=) = bind
+
+public export %inline
+Monad io => MonadError SQLError (SQLEnv env io) where
+  throwError err = MkSQLEnv $ \_ => pure (Left err)
+  catchError = catch
+
+public export %inline
+Monad io => MonadReader env (SQLEnv env io) where
+  ask = MkSQLEnv $ \e => pure (Right e)
+  local f (MkSQLEnv fun) = MkSQLEnv (fun . f)
+
 --------------------------------------------------------------------------------
 --          Low level API
 --------------------------------------------------------------------------------
 
--- public export
--- SQL : (Type -> Type) -> Type
--- SQL io = (HasIO io, MonadError SQLError io)
--- 
--- public export
--- WithConnection : (Type -> Type) -> Type -> Type
--- WithConnection io a =
---   HasIO io => MonadError SQLError io => Connection -> io a
--- 
--- public export
--- WithResult : (Type -> Type) -> Type -> Type
--- WithResult io a =
---   HasIO io => MonadError SQLError io => Result -> io a
--- 
--- export
--- status : WithConnection io ConnStatusType
--- status c = fromBits8 <$> primIO (prim__status c)
---  
--- export
--- connect : SQL io => String -> WithConnection io a -> io a
--- connect s f = do
---   c <- primIO (prim__connect s)
---   BAD <- status c
---     | _ => do
---       ea <- tryError (f c)
---       primIO $ prim__finish c
---       liftEither ea
--- 
---   msg <- primIO (prim__errorMessage c)
---   primIO $ prim__finish c
---   throwError $ ConnectionError BAD msg
--- 
--- export
--- resultStatus : WithResult io ExecStatusType
--- resultStatus r = fromBits8 <$> primIO (prim__resultStatus r)
--- 
--- export
--- resultErrorMsg : WithResult io String
--- resultErrorMsg r = primIO (prim__resultErrorMsg r)
--- 
--- export
--- exec :  String
---      -> ExecStatusType
---      -> WithResult io a
---      -> WithConnection io a
--- exec s est f c = do
---   res <- primIO (prim__exec c s)
---   st  <- resultStatus res
---   if st == est
---      then do
---        ea <- tryError (f res)
---        primIO $ prim__clear res
---        liftEither ea
---      else do
---        msg <- resultErrorMsg res
---        primIO $ prim__clear res
---        throwError $ ExecError st msg
--- 
--- pureRes : b -> WithResult io b
--- pureRes b _ = pure b
+public export
+WithConnection : (Type -> Type) -> Type -> Type
+WithConnection io a = Connection -> io a
 
--- export
--- exec_ :  String -> ExecStatusType -> WithConnection io ()
--- exec_ s est = exec s est (pureRes {io} ())
+public export
+WithResult : (Type -> Type) -> Type -> Type
+WithResult io a = Result -> io a
 
---       => MonadError SQLError io
---       => Connection
---       -> String
---       -> ExecStatusType
---       -> io ()
--- exec_ c s est = exec c s est >>= clear
--- 
--- export
--- ntuples : HasIO io => Result -> io Bits32
--- ntuples r = primIO $ prim__ntuples r
--- 
--- export
--- nfields : HasIO io => Result -> io Bits32
--- nfields r = primIO $ prim__nfields r
--- 
--- export
--- getValue : HasIO io => Result -> Bits32 -> Bits32 -> io String
--- getValue r row col = primIO $ prim__getValue r row col
+export
+status : HasIO io => WithConnection io ConnStatusType
+status c = fromBits8 <$> primIO (prim__status c)
+ 
+export
+connect :  HasIO io
+        => MonadError SQLError io
+        => String
+        -> WithConnection io a
+        -> io a
+connect s f = do
+  c <- primIO (prim__connect s)
+  BAD <- status c
+    | _ => do
+      ea <- tryError (f c)
+      primIO $ prim__finish c
+      liftEither ea
+
+  msg <- primIO (prim__errorMessage c)
+  primIO $ prim__finish c
+  throwError $ ConnectionError BAD msg
+
+export
+resultStatus : HasIO io => WithResult io ExecStatusType
+resultStatus r = fromBits8 <$> primIO (prim__resultStatus r)
+
+export
+resultErrorMsg : HasIO io => WithResult io String
+resultErrorMsg r = primIO (prim__resultErrorMsg r)
+
+export
+exec :  HasIO io
+     => MonadError SQLError io
+     => String
+     -> ExecStatusType
+     -> (Result -> io a)
+     -> Connection
+     -> io a
+exec s est f c = do
+  res <- primIO (prim__exec c s)
+  st  <- resultStatus res
+  if st == est
+     then do
+       ea <- tryError (f res)
+       primIO $ prim__clear res
+       liftEither ea
+     else do
+       msg <- resultErrorMsg res
+       primIO $ prim__clear res
+       throwError $ ExecError st msg
+
+export
+exec_ :  HasIO io
+      => MonadError SQLError io
+      => String
+      -> ExecStatusType
+      -> Connection 
+      -> io ()
+exec_ s est = exec s est (\_ => pure ())
+
+export
+ntuples : HasIO io => Result -> io Bits32
+ntuples r = primIO $ prim__ntuples r
+
+export
+nfields : HasIO io => Result -> io Bits32
+nfields r = primIO $ prim__nfields r
+
+export
+getValue : HasIO io => Result -> Bits32 -> Bits32 -> io String
+getValue r row col = primIO $ prim__getValue r row col
 
 -- --------------------------------------------------------------------------------
 -- --          SOP
